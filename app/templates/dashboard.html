@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>mp-daily-bot — Дашборд</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<header>
+    <h1>mp-daily-bot</h1>
+    <p>Период: {{ date_from }} — {{ date_to }}</p>
+</header>
+<nav>
+    <a href="/yesterday" {% if period == "yesterday" %}class="active"{% endif %}>Вчера</a>
+    <a href="/range?period=7" {% if period == "7" %}class="active"{% endif %}>7 дней</a>
+    <a href="/range?period=14" {% if period == "14" %}class="active"{% endif %}>14 дней</a>
+    <a href="/range?period=month" {% if period == "month" %}class="active"{% endif %}>Месяц</a>
+</nav>
+<main>
+    <section class="summary">
+        <div>
+            <h2>Выручка</h2>
+            <p>{{ "{:,.2f}".format(totals.revenue_delivered).replace(",", " ") }} ₽</p>
+        </div>
+        <div>
+            <h2>Прибыль</h2>
+            <p>{{ "{:,.2f}".format(totals.profit).replace(",", " ") }} ₽</p>
+        </div>
+        <div>
+            <h2>ROMI</h2>
+            <p>{{ "{:.2f}".format(totals.romi) if totals.romi is not none else "—" }}</p>
+        </div>
+    </section>
+
+    <section>
+        <h2>Платформы</h2>
+        <table>
+            <thead>
+            <tr>
+                <th>Платформа</th>
+                <th>Выручка</th>
+                <th>Прибыль</th>
+                <th>ROMI</th>
+                <th>Заказы</th>
+                <th>Доставлено</th>
+                <th>Возвраты</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for platform, values in metrics.items() %}
+                <tr>
+                    <td>{{ platform.upper() }}</td>
+                    <td>{{ "{:,.2f}".format(values.revenue_delivered).replace(",", " ") }}</td>
+                    <td>{{ "{:,.2f}".format(values.profit).replace(",", " ") }}</td>
+                    <td>{{ "{:.2f}".format(values.romi) if values.romi is not none else "—" }}</td>
+                    <td>{{ values.orders_count }}</td>
+                    <td>{{ values.delivered }}</td>
+                    <td>{{ values.returns }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </section>
+
+    <section>
+        <h2>Динамика</h2>
+        <div class="chart">
+            {% if chart %}
+                <svg viewBox="0 0 100 40" preserveAspectRatio="none">
+                    {% set max_value = chart | max(attribute='revenue') %}
+                    {% for point in chart %}
+                        {% set x = (loop.index0 / (chart|length - 1 if chart|length > 1 else 1)) * 100 %}
+                        {% set rev_height = (point.revenue / max_value if max_value else 0) * 30 %}
+                        {% set profit_height = (point.profit / max_value if max_value else 0) * 30 %}
+                        <rect x="{{ x }}" y="{{ 35 - rev_height }}" width="2" height="{{ rev_height }}" class="revenues"></rect>
+                        <rect x="{{ x + 1 }}" y="{{ 35 - profit_height }}" width="2" height="{{ profit_height }}" class="profit"></rect>
+                    {% endfor %}
+                </svg>
+            {% else %}
+                <p>Нет данных для графика</p>
+            {% endif %}
+        </div>
+    </section>
+
+    <section class="actions">
+        <form method="get" action="/api/export">
+            <input type="hidden" name="from" value="{{ date_from }}">
+            <input type="hidden" name="to" value="{{ date_to }}">
+            <button type="submit">Скачать Excel</button>
+        </form>
+    </section>
+</main>
+</body>
+</html>

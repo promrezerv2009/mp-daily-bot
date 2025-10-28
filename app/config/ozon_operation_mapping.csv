@@ -1,0 +1,22 @@
+sale_revenue,contains,выручка,revenue,sale,revenue,1,Выручка от продаж
+commission_sale,contains,вознаграждение ozon,commission,commission,cost,1,Комиссия Ozon (23%)
+commission_sale2,contains,вознаграждение за продажу,commission,commission,cost,1,Комиссия Ozon (23%)
+acquiring_fee,contains,эквайринг,commission,acquiring,cost,1,Эквайринг (часть 23%)
+subscription_premium,contains,подписка premium,commission,subscription,cost,1,Подписка Premium
+subscription_premium_pro,contains,premium pro,commission,subscription,cost,1,Подписка Premium Pro
+logistics_delivery,contains,логистика,logistics,delivery,cost,1,Основная логистика
+logistics_reverse,contains,обратная логистика,logistics,returns,cost,1,Обратная логистика
+logistics_pickup,contains,доставка до места выдачи,logistics,pickup,cost,1,Доставка до ПВЗ
+logistics_processing,contains,обработка отмен,logistics,processing,cost,1,Обработка отмен/возвратов
+ads_click,contains,оплата за клик,ads,clicks,cost,1,Реклама — клики
+ads_stars,contains,звёздные товары,ads,stars,cost,1,Реклама — звёздные
+ads_bonus,contains,баллы за скидки,ads,bonus,cost,1,Скидочные баллы
+ads_partners,contains,программы партнёров,ads,partners,cost,1,Партнёрские программы
+storage_fee,contains,хранение,storage,storage,cost,1,Плата за хранение
+storage_placement,contains,размещение на складе,storage,placement,cost,1,Размещение на складе
+fine,contains,штраф,other,fine,cost,1,Штрафыё
+refund,contains,возврат,other,refund,cost,1,Возвраты/корректировки
+commission_reward,contains,вознаграждение ozon,commission,commission,cost,1,Комиссия Ozon (основная)
+commission_sale4,contains,вознаграждение за продажу,commission,commission,cost,1,Комиссия за продажу
+commission_fbo2,contains,комиссия за продажу товара,commission,commission,cost,1,Комиссия за продажу товара
+commission_service,contains,комиссия за сервис,commission,commission,cost,1,Комиссия сервисная

@@ -1,0 +1,67 @@
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: mpdaily
+      TZ: Europe/Moscow
+      
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backend
+
+  app:
+    environment:
+      - OZON_CLIENT_ID=${OZON_CLIENT_ID}
+      - OZON_API_KEY=${OZON_API_KEY}
+    build: .
+    container_name: mp-daily-bot-app
+    command: ["/srv/app/entrypoint.sh", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    volumes:
+      - ./:/srv/app
+      - reports-data:/srv/app/reports
+      - ./config/ozon_operation_mapping.csv:/app/config/ozon_operation_mapping.csv:ro
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    ports:
+      - "8000:8000"        # ← добавь вот это
+    networks:
+      - backend
+
+  bot:
+    build: .
+    command: ["python", "-m", "app.bot"]
+    volumes:
+      - ./:/srv/app
+    env_file:
+      - .env
+    depends_on:
+      app:
+        condition: service_healthy
+    networks:
+      - backend
+    environment:
+      - API_BASE_URL=http://app:8000  
+
+volumes:
+  postgres-data:
+  reports-data:
+
+networks:
+  backend:
+    driver: bridge

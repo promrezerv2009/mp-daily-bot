@@ -1,0 +1,37 @@
+sale_revenue,contains,выручка,revenue,sale,revenue,1,Выручка от продаж
+commission_reward,contains,вознаграждение ozon,commission,commission,cost,1,Комиссия Ozon
+commission_sale,contains,вознаграждение за продажу,commission,commission,cost,1,Комиссия за продажу
+commission_item,contains,комиссия за продажу товара,commission,commission,cost,1,Комиссия за товар
+acquiring_fee,contains,эквайринг,commission,acquiring,cost,1,Эквайринг
+subscription_premium,contains,подписка premium,commission,subscription,cost,1,Premium
+logistics_delivery,contains,логистика,logistics,delivery,cost,1,Логистика
+logistics_reverse,contains,обратная логистика,logistics,returns,cost,1,Обратная логистика
+logistics_pickup,contains,доставка до места выдачи,logistics,pickup,cost,1,Доставка до ПВЗ
+ads_click,contains,оплата за клик,ads,clicks,cost,1,Реклама клики
+storage_fee,contains,хранение,storage,storage,cost,1,Хранение
+storage_placement,contains,услуга размещения товаров на складе,storage,placement,cost,1,Размещение на складе
+commission_reward2,contains,вознаграждение за продажу товаров,commission,commission,cost,1,Комиссия за продажу (мн.ч)
+commission_reward3,contains,вознаграждение продавца,commission,commission,cost,1,Комиссия продавца
+commission_service2,contains,комиссия маркетплейса,commission,commission,cost,1,Комиссия маркетплейса
+commission_service3,contains,услуга маркетплейса,commission,commission,cost,1,Услуга маркетплейса (комиссия)
+commission_sale5,contains,вознаграждение за продажу товара,commission,commission,cost,1,Комиссия за продажу (ед.ч)
+commission_reward2,contains,вознаграждение ozon,commission,commission,cost,1,Комиссия Ozon
+commission_sale5,contains,вознаграждение за продажу,commission,commission,cost,1,Комиссия за продажу
+commission_service2,contains,комиссия маркетплейса,commission,commission,cost,1,Комиссия маркетплейса
+commission_service3,contains,услуга маркетплейса,commission,commission,cost,1,Услуга маркетплейса
+commission_seller,contains,вознаграждение продавца,commission,commission,cost,1,Вознаграждение продавца
+subscription_premium_pro_pct,contains,подписка premium pro (процент),commission,subscription,cost,1,Premium Pro процент
+logistics_customer,contains,доставка покупател,logistics,delivery,cost,1,Доставка покупателю
+logistics_returns_proc,contains,обработка возврат,logistics,processing,cost,1,Обработка возвратов
+logistics_cancel_proc,contains,обработка отмен,logistics,processing,cost,1,Обработка отмен
+logistics_nonpickup,contains,невыкуп,logistics,returns,cost,1,Невыкуп/возврат
+storage_post_docking,contains,пост-докинг,storage,placement,cost,1,Пост-докинг
+commission_reward4,contains,вознаграждение ozon,commission,commission,cost,1,Вознаграждение Ozon
+commission_reward5,contains,вознаграждение за продажу товаров,commission,commission,cost,1,Вознаграждение за продажу товаров
+commission_reward6,contains,комиссия за реализацию,commission,commission,cost,1,Комиссия за реализацию
+commission_reward7,contains,комиссия за продажу товаров по акции,commission,commission,cost,1,Комиссия за продажу товаров по акции
+commission_reward8,contains,услуга маркетплейса,commission,commission,cost,1,Услуга маркетплейса
+commission_reward9,contains,вознаграждение площадки,commission,commission,cost,1,Вознаграждение площадки
+commission_any1,contains,вознаграждени,commission,commission,cost,1,Любые формы "вознаграждение"
+commission_any2,contains,комисс,commission,commission,cost,1,Любые формы "комиссия"
+commission_any3,contains,услуг,commission,commission,cost,1,Любые формы "услуга маркетплейса"
