@@ -1,18 +1,7 @@
-from datetime import date
-from typing import Optional
+from datetime import date, datetime
+from typing import List, Optional
 
-from sqlalchemy import (
-    Column,
-    Date,
-    Enum,
-    Float,
-    ForeignKey,
-    Index,
-    Integer,
-    Numeric,
-    String,
-    UniqueConstraint,
-)
+from sqlalchemy import Column, Date, DateTime, Enum, Float, ForeignKey, Index, Integer, Numeric, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -113,3 +102,77 @@ class DailyAggregate(Base):
         UniqueConstraint("platform", "date", name="uq_aggregates_platform_date"),
         Index("ix_aggregates_platform_date", "platform", "date"),
     )
+
+
+class Subscription(Base):
+    __tablename__ = "subscriptions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    tenant_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    plan: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        Index("ix_subscriptions_user", "user_id"),
+        Index("ix_subscriptions_tenant", "tenant_id"),
+    )
+
+
+class Trial(Base):
+    __tablename__ = "trials"
+
+    user_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    tenant_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        Index("ix_trials_tenant", "tenant_id"),
+    )
+
+
+class AbTest(Base):
+    __tablename__ = "ab_tests"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    product_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    variants: Mapped[List["AbVariant"]] = relationship("AbVariant", back_populates="test")
+    result: Mapped[Optional["AbResult"]] = relationship("AbResult", back_populates="test", uselist=False)
+
+    __table_args__ = (
+        Index("ix_ab_tests_tenant", "tenant_id"),
+        Index("ix_ab_tests_product_status", "product_id", "status"),
+    )
+
+
+class AbVariant(Base):
+    __tablename__ = "ab_variants"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    test_id: Mapped[int] = mapped_column(ForeignKey("ab_tests.id", ondelete="CASCADE"), nullable=False)
+    image_url: Mapped[str] = mapped_column(String(512), nullable=False)
+    shows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    clicks: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    orders: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    ctr: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    cr: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+    test: Mapped["AbTest"] = relationship("AbTest", back_populates="variants")
+
+
+class AbResult(Base):
+    __tablename__ = "ab_results"
+
+    test_id: Mapped[int] = mapped_column(ForeignKey("ab_tests.id", ondelete="CASCADE"), primary_key=True)
+    winner_variant_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    test: Mapped["AbTest"] = relationship("AbTest", back_populates="result")

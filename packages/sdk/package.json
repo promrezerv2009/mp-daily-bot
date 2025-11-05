@@ -1,0 +1,10 @@
+{
+  "name": "mp-sdk",
+  "private": true,
+  "devDependencies": {
+    "openapi-typescript": "^6.7.0"
+  },
+  "scripts": {
+    "gen": "openapi-typescript http://localhost:8000/openapi.json -o src/types.ts"
+  }
+}

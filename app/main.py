@@ -10,9 +10,12 @@ from typing import List, Dict
 from fastapi import Query
 from datetime import date, timedelta
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.logging_conf import setup_logging
 from app.db import init_db
+from app.middleware.refresh_stub import RefreshTokenMiddleware
+from app.middleware.access import AccessControlMiddleware
 
 
 # роуты
@@ -21,10 +24,25 @@ from app.api.routes_export import router as export_router
 from app.api.health import router as health_router
 from app.api.routes_debug import router as debug_router
 from app.api.routes_refresh import router as refresh_router
+from app.api.routes_mobile import router as mobile_router
+from app.api.routes_billing import router as billing_router
+from app.api.routes_abtest import router as abtest_router
+from app.api.routes_ai import router as ai_router
 settings = get_settings()
 setup_logging(settings.log_level)
 
 app = FastAPI(title="mp-daily-bot")
+
+cors_origins = settings.cors_origins or ["*"]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+app.add_middleware(RefreshTokenMiddleware)
+app.add_middleware(AccessControlMiddleware)
 
 # Подключаем роутеры
 app.include_router(health_router)          # /health
@@ -32,6 +50,10 @@ app.include_router(metrics_router, prefix="/api")
 app.include_router(export_router, prefix="/api")
 app.include_router(debug_router, prefix="/api")
 app.include_router(refresh_router, prefix="/api")
+app.include_router(mobile_router)
+app.include_router(billing_router, prefix="/api")
+app.include_router(abtest_router, prefix="/api")
+app.include_router(ai_router, prefix="/api")
 
 @app.post("/api/perf/ads/update_range")
 def perf_ads_update_range(period: str = Query("7d")):
@@ -1297,7 +1319,7 @@ def metrics(period: str = Query("7d")) -> Dict[str, object]:
     from datetime import date, timedelta
     start, end = _period_to_range(period)
 
-    # как и в daily: не включаем текущий день
+    # не включаем текущий день (чтобы не ловить «незакрытые» начисления)
     today = date.today()
     end_adj = min(end, today - timedelta(days=1))
 
@@ -1308,86 +1330,79 @@ def metrics(period: str = Query("7d")) -> Dict[str, object]:
 
     import psycopg2
     with psycopg2.connect(dsn) as conn, conn.cursor() as cur:
+        # Суммы из aggregates_daily за период
         cur.execute("""
-            with o as (
-              select
-                sum(price * qty_delivered) as revenue_delivered,
-                sum(qty_ordered)          as orders,
-                sum(qty_delivered)        as delivered,
-                sum(qty_returned)         as returns
-              from orders
-              where date between %s and %s
-            ),
-            c as (
-              select
-                coalesce(sum(commission_fee),0) as commission,
-                coalesce(sum(logistics_fee),0)  as logistics,
-                coalesce(sum(storage_fee),0)    as storage,
-                coalesce(sum(cogs_per_unit),0)  as cogs
-              from costs
-              where date between %s and %s
-                and sku <> 'OTHER'
-            ),
-            c_other as (
-              select coalesce(sum(cogs_per_unit),0) as other_fees
-              from costs
-              where date between %s and %s
-                and sku = 'OTHER'
-            ),
-            a as (
-              select coalesce(sum(amount),0) as ads
-              from ads_costs
-              where date between %s and %s
-            )
-            select
-              coalesce(o.revenue_delivered,0),
-              coalesce(o.orders,0),
-              coalesce(o.delivered,0),
-              coalesce(o.returns,0),
-              c.commission, c.logistics, c.storage, c.cogs,
-              a.ads,
-              c_other.other_fees
-            from o, c, a, c_other;
-        """, (start, end_adj, start, end_adj, start, end_adj, start, end_adj))
-        (revenue, orders, delivered, returns,
-         commission, logistics, storage, cogs,
-         ads, other_fees) = cur.fetchone()
+        WITH rng AS (
+          SELECT %s::date AS d1, %s::date AS d2
+        ),
+        agg AS (
+          SELECT
+            COALESCE(SUM(commission),0) AS commission,
+            COALESCE(SUM(logistics),0)  AS logistics,
+            COALESCE(SUM(storage),0)    AS storage,
+            COALESCE(SUM(ads),0)        AS ads
+          FROM aggregates_daily, rng
+          WHERE platform='ozon' AND date BETWEEN rng.d1 AND rng.d2
+        ),
+        -- Выручка и прочие (неклассифицированные) расходы из финансовых операций
+        ops_money AS (
+          SELECT
+            COALESCE(SUM(CASE WHEN kind='revenue_delivery' AND amount>0 THEN amount ELSE 0 END),0)::numeric(14,2) AS revenue_delivered,
+            COALESCE(SUM(CASE WHEN kind='other'            AND amount<0 THEN -amount ELSE 0 END),0)::numeric(14,2) AS other_fees
+          FROM ozon_finance_ops, rng
+          WHERE platform='ozon' AND op_date BETWEEN rng.d1 AND rng.d2
+        ),
+        -- Счётчики: заказы/доставки/возвраты из финансовых операций
+        ops_counts AS (
+          SELECT
+            COALESCE(COUNT(*) FILTER (WHERE kind='revenue_delivery' AND amount>0),0) AS delivered_cnt,
+            COALESCE(COUNT(*) FILTER (WHERE (payload->>'operation_type') IN ('OperationItemReturn','ClientReturnAgentOperation')),0) AS returns_cnt
+          FROM ozon_finance_ops, rng
+          WHERE platform='ozon' AND op_date BETWEEN rng.d1 AND rng.d2
+        )
+        SELECT
+          ops_money.revenue_delivered,
+          agg.commission, agg.logistics, agg.storage, agg.ads,
+          ops_money.other_fees,
+          ops_counts.delivered_cnt,  -- будем трактовать как orders и delivered
+          ops_counts.returns_cnt
+        FROM agg, ops_money, ops_counts;
+        """, (start, end_adj))
+
+        (revenue, commission, logistics, storage, ads, other_fees,
+         delivered_cnt, returns_cnt) = cur.fetchone()
+
+    # Трактуем delivered_cnt как «заказы» и «доставлено» (финансовая выручка появляется по факту выкупа)
+    orders = int(delivered_cnt or 0)
+    delivered = int(delivered_cnt or 0)
+    returns = int(returns_cnt or 0)
 
     revenue = float(revenue or 0)
     commission = float(commission or 0)
     logistics = float(logistics or 0)
     storage = float(storage or 0)
-    cogs = float(cogs or 0)
     ads = float(ads or 0)
     other_fees = float(other_fees or 0)
 
-    net_profit = revenue - (commission + logistics + storage + cogs + ads + other_fees)
+    net_profit = revenue - (commission + logistics + storage + ads + other_fees)
     romi = (revenue / ads) if ads > 0 else None
 
     summary = {
         "revenue_delivered": revenue,
-        "orders": int(orders or 0),
-        "delivered": int(delivered or 0),
-        "returns": int(returns or 0),
+        "orders": orders,
+        "delivered": delivered,
+        "returns": returns,
         "commission": commission,
         "logistics": logistics,
         "storage": storage,
-        "cogs": cogs,
+        "cogs": 0.0,               # подключим позже из себестоимости
         "ads": ads,
-        "other_fees": other_fees,   # 🆕
-        "profit": net_profit,       # ← теперь это чистая прибыль
-        "net_profit": net_profit,   # дублируем явно
+        "other_fees": other_fees,
+        "profit": net_profit,
+        "net_profit": net_profit,
         "romi": romi,
     }
-
     return {"ok": True, "period": period, "summary": summary, "by_platform": []}
-
-
-# --- OZON: тест авторизации и выборки за период ---
-from fastapi import Query
-
-OZ_HOST = "https://api-seller.ozon.ru"
-# --- ADJ: суммы отмен/возвратов из БД по периоду ---
 @app.get("/api/adjustments")
 def adjustments(period: str = Query("yesterday")):
     # диапазон дат
@@ -2166,3 +2181,57 @@ load(); // 7d по умолчанию
 </script>
 </html>
     """
+@app.get("/api/metrics2")
+def metrics2(period: str = Query("7d")) -> Dict[str, object]:
+    from datetime import date, timedelta
+    start, end = _period_to_range(period)
+    today = date.today()
+    end_adj = min(end, today - timedelta(days=1))
+
+    dsn = (
+        os.getenv("DATABASE_URL")
+        or f"postgresql://{os.getenv('DB_USER','postgres')}:{os.getenv('DB_PASSWORD', os.getenv('POSTGRES_PASSWORD','postgres'))}"
+           f"@{os.getenv('DB_HOST','db')}:{os.getenv('DB_PORT','5432')}/{os.getenv('DB_NAME','mpdaily')}"
+    )
+
+    import psycopg2
+    with psycopg2.connect(dsn) as conn, conn.cursor() as cur:
+        # 1) Итоги из aggregates_daily
+        cur.execute("""
+            SELECT
+              COALESCE(SUM(commission),0),
+              COALESCE(SUM(logistics),0),
+              COALESCE(SUM(storage),0),
+              COALESCE(SUM(ads),0),
+              COALESCE(SUM(profit),0)
+            FROM aggregates_daily
+            WHERE platform='ozon' AND date BETWEEN %s AND %s
+        """, (start, end_adj))
+        commission, logistics, storage, ads, profit_sum = cur.fetchone()
+
+        # 2) Выручка и «прочие» из ozon_finance_ops
+        cur.execute("""
+            SELECT
+              COALESCE(SUM(CASE WHEN kind='revenue_delivery' THEN amount ELSE 0 END),0),
+              COALESCE(SUM(CASE WHEN kind='other' AND amount<0 THEN -amount ELSE 0 END),0)
+            FROM ozon_finance_ops
+            WHERE platform='ozon' AND op_date BETWEEN %s AND %s
+        """, (start, end_adj))
+        revenue_delivery, other_costs = cur.fetchone()
+
+    summary = {
+        "revenue_delivered": float(revenue_delivery or 0),
+        "orders": 0,
+        "delivered": 0,
+        "returns": 0,
+        "commission": float(commission or 0),
+        "logistics": float(logistics or 0),
+        "storage": float(storage or 0),
+        "cogs": 0.0,
+        "ads": float(ads or 0),
+        "other_fees": float(other_costs or 0),
+        "profit": float(profit_sum or 0),
+        "net_profit": float(profit_sum or 0),
+        "romi": (float(revenue_delivery)/float(ads)) if float(ads)>0 else None,
+    }
+    return {"ok": True, "period": period, "summary": summary, "by_platform": []}

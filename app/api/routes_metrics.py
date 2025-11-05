@@ -46,45 +46,37 @@ def _period_dates(period: str):
 def get_metrics(period: str = Query("yesterday")) -> Dict[str, Any]:
     start_d, end_d = _period_dates(period)
 
-    q_orders = text("""
-        SELECT
-          COALESCE(SUM(qty_ordered),0)   AS orders_cnt,
-          COALESCE(SUM(qty_delivered),0) AS delivered_cnt,
-          COALESCE(SUM(qty_returned),0)  AS returns_cnt,
-          COALESCE(SUM(price * qty_delivered),0) AS revenue_delivered
-        FROM orders
-        WHERE date BETWEEN :d1 AND :d2
-    """)
-
-    q_ads = text("""
-        SELECT COALESCE(SUM(amount),0) AS ads_sum
-        FROM ads_costs
-        WHERE date BETWEEN :d1 AND :d2
-    """)
-
-    q_costs = text("""
-        SELECT
-          COALESCE(SUM(commission_fee),0) AS commission,
-          COALESCE(SUM(logistics_fee),0)  AS logistics,
-          COALESCE(SUM(storage_fee),0)    AS storage,
-          COALESCE(SUM(cogs_per_unit),0)  AS cogs   -- грубо, на период (демо)
-        FROM costs
-        WHERE date BETWEEN :d1 AND :d2
-    """)
-
     with _engine.begin() as conn:
-        o = conn.execute(q_orders, {"d1": start_d, "d2": end_d}).mappings().one()
-        a = conn.execute(q_ads, {"d1": start_d, "d2": end_d}).mappings().one()
-        c = conn.execute(q_costs, {"d1": start_d, "d2": end_d}).mappings().one()
+        agg = conn.execute(
+            text(
+                """
+                SELECT
+                  COALESCE(SUM(orders_count),0)   AS orders_cnt,
+                  COALESCE(SUM(delivered),0)      AS delivered_cnt,
+                  COALESCE(SUM(returns),0)        AS returns_cnt,
+                  COALESCE(SUM(revenue_delivered),0) AS revenue_delivered,
+                  COALESCE(SUM(cogs),0)           AS cogs,
+                  COALESCE(SUM(commission),0)     AS commission,
+                  COALESCE(SUM(logistics),0)      AS logistics,
+                  COALESCE(SUM(storage),0)        AS storage,
+                  COALESCE(SUM(ads),0)            AS ads,
+                  COALESCE(SUM(profit),0)         AS profit
+                FROM aggregates_daily
+                WHERE platform = :platform
+                  AND date BETWEEN :d1 AND :d2
+                """
+            ),
+            {"d1": start_d, "d2": end_d, "platform": "ozon"},
+        ).mappings().one()
 
-    revenue = float(o["revenue_delivered"])
-    ads = float(a["ads_sum"])
-    commission = float(c["commission"])
-    logistics = float(c["logistics"])
-    storage = float(c["storage"])
-    cogs = float(c["cogs"])
+    revenue = float(agg["revenue_delivered"])
+    ads = float(agg["ads"])
+    commission = float(agg["commission"])
+    logistics = float(agg["logistics"])
+    storage = float(agg["storage"])
+    cogs = float(agg["cogs"])
 
-    profit = revenue - (commission + logistics + storage + ads + cogs)
+    profit = float(agg["profit"])
     romi = (revenue - ads) / ads if ads > 0 else None
 
     return {
@@ -92,9 +84,9 @@ def get_metrics(period: str = Query("yesterday")) -> Dict[str, Any]:
         "period": period,
         "summary": {
             "revenue_delivered": revenue,
-            "orders": int(o["orders_cnt"]),
-            "delivered": int(o["delivered_cnt"]),
-            "returns": int(o["returns_cnt"]),
+            "orders": int(agg["orders_cnt"]),
+            "delivered": int(agg["delivered_cnt"]),
+            "returns": int(agg["returns_cnt"]),
             "commission": commission,
             "logistics": logistics,
             "storage": storage,

@@ -108,6 +108,11 @@ docker compose up -d --build
 - `GET /` (редирект на `/yesterday`)
 - `GET /range?period=7` или `/range?from=YYYY-MM-DD&to=YYYY-MM-DD`
 
+## SDK types
+
+- Генерация типов: `cd packages/sdk && npm install && npm run gen` (требуется запущенный FastAPI по `http://localhost:8000`).
+- В `packages/sdk/src/fetch.ts` есть helper `apiFetch` с автоматической прокладкой заголовка `X-Tenant-Id` (`setDefaultTenant("tenant-123")`), используйте его в мобильном/web-клиенте.
+
 ## Планировщик
 
 - Cron по умолчанию: `0 2 * * *` (02:00 Europe/Moscow). Настраивается через `.env` (`SCHEDULER_REFRESH_CRON`, `SCHEDULER_TIMEZONE`).

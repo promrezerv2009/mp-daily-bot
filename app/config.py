@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     telegram_bot_token: str = Field("", alias="TELEGRAM_BOT_TOKEN")
     admin_ids: List[int] = Field(default_factory=list, alias="ADMIN_IDS")
     manager_ids: List[int] = Field(default_factory=list, alias="MANAGER_IDS")
+    bot_recipients: List[int] = Field(default_factory=list, alias="BOT_RECIPIENTS")
 
     db_url: str = Field(..., alias="DB_URL")
 
@@ -18,7 +19,14 @@ class Settings(BaseSettings):
     wb_token: Optional[str] = Field(None, alias="WB_TOKEN")
 
     # 🔹 новое поле для уровня логов
+    cors_origins: List[str] = Field(default_factory=list, alias="CORS_ORIGINS")
+    tenant_header: str = Field("X-Tenant-ID", alias="TENANT_HEADER")
     log_level: str = Field("INFO", alias="LOG_LEVEL")
+    billing_provider: str = Field("stub", alias="BILLING_PROVIDER")
+    free_trial_days: int = Field(7, alias="FREE_TRIAL_DAYS")
+
+    n8n_user: Optional[str] = Field(None, alias="N8N_USER")
+    n8n_pass: Optional[str] = Field(None, alias="N8N_PASS")
 
     # 🔹 таймзона для планировщика
     scheduler_timezone: str = Field("Europe/Moscow", alias="SCHEDULER_TZ")
@@ -26,6 +34,8 @@ class Settings(BaseSettings):
     # 🔹 новые поля базовых URL для клиентов API
     ozon_api_url: str = Field("https://api-seller.ozon.ru", alias="OZON_API_URL")
     wb_api_url: str = Field("https://statistics-api.wildberries.ru", alias="WB_API_URL")
+    api_base_url: str = Field("http://app:8000", alias="API_BASE_URL")
+
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -52,12 +62,21 @@ class Settings(BaseSettings):
     def _norm_cron(cls, v):
         return (str(v).strip() if v else "0 6 * * *")
 
-    @field_validator("admin_ids", "manager_ids", mode="before")
+    @field_validator("admin_ids", "manager_ids", "bot_recipients", mode="before")
     @classmethod
     def _split_ids(cls, v):
         if isinstance(v, str):
             return [int(x.strip()) for x in v.split(",") if x.strip()]
         return v
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def _split_origins(cls, v):
+        if isinstance(v, str):
+            if not v.strip():
+                return []
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
+        return v or []
 
 
 

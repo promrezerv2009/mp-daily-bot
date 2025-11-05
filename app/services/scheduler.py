@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from datetime import datetime, timedelta
+from typing import Any, Dict
 from zoneinfo import ZoneInfo
 
+import aiohttp
+from aiogram import Bot
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy.dialects.postgresql import insert
@@ -23,6 +27,13 @@ from app.services.transform import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _fmt_money(value: Any) -> str:
+    try:
+        return f"{float(value):,.0f}".replace(",", " ")
+    except Exception:
+        return str(value)
 
 
 class DataRefreshService:
@@ -205,11 +216,63 @@ class DataRefreshService:
                     session.execute(stmt)
 
 
+async def send_daily_digest() -> None:
+    settings = get_settings()
+    if not settings.bot_recipients or not settings.telegram_bot_token:
+        return
+
+    base_url = os.getenv("API_BASE_URL", "http://app:8000")
+    summary: Dict[str, Any] | None = None
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{base_url}/api/mobile/summary?period=1d", timeout=15) as resp:
+                if resp.status >= 400:
+                    detail = await resp.text()
+                    raise RuntimeError(f"summary request failed: {resp.status} {detail[:200]}")
+                summary = await resp.json()
+    except Exception as exc:  # broad catch to avoid crashing scheduler
+        logger.warning("Daily digest fetch failed: %s", exc)
+        return
+    if not summary:
+        return
+
+    text = (
+        "📅 Дайджест за вчера\n"
+        f"Выручка: {_fmt_money(summary.get('revenue', 0))} ₽\n"
+        f"Прибыль: {_fmt_money(summary.get('profit', 0))} ₽\n"
+        f"Заказы: {summary.get('orders', 0)}\n"
+        f"ROI: {summary.get('roi', '-')}"
+    )
+
+    bot = Bot(token=settings.telegram_bot_token)
+    try:
+        for chat_id in settings.bot_recipients:
+            try:
+                await bot.send_message(chat_id, text)
+            except Exception as exc:
+                logger.warning("Failed to send digest to %s: %s", chat_id, exc)
+    finally:
+        await bot.session.close()
+
+
 def setup_scheduler() -> tuple[AsyncIOScheduler, DataRefreshService]:
     settings = get_settings()
     scheduler = AsyncIOScheduler(timezone=ZoneInfo(settings.scheduler_timezone))
     service = DataRefreshService()
-    trigger = CronTrigger.from_crontab(settings.scheduler_cron, timezone=ZoneInfo(settings.scheduler_timezone))
-    scheduler.add_job(service.refresh_yesterday, trigger=trigger, id="daily_refresh", replace_existing=True)
+    tz = ZoneInfo(settings.scheduler_timezone)
+    refresh_trigger = CronTrigger.from_crontab(settings.scheduler_cron, timezone=tz)
+    scheduler.add_job(
+        service.refresh_yesterday,
+        trigger=refresh_trigger,
+        id="daily_refresh",
+        replace_existing=True,
+    )
+    digest_trigger = CronTrigger(hour=9, minute=0, timezone=tz)
+    scheduler.add_job(
+        send_daily_digest,
+        trigger=digest_trigger,
+        id="daily_mobile_digest",
+        replace_existing=True,
+    )
     scheduler.start()
     return scheduler, service

@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import requests
@@ -33,16 +33,22 @@ class OzonApiClient:
             response.raise_for_status()
         return response.json()
 
-    def fetch_orders(self, date_from: datetime, date_to: datetime) -> List[Dict[str, Any]]:
-        """Fetch postings (orders) from Ozon within the date range."""
+    @staticmethod
+    def _iso_z(dt: datetime) -> str:
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def fetch_orders_fbs(self, date_from: datetime, date_to: datetime) -> List[Dict[str, Any]]:
+        """Fetch FBS postings from Ozon within the date range."""
         orders: List[Dict[str, Any]] = []
         offset = 0
         limit = 100
         while True:
             payload = {
                 "filter": {
-                    "since": date_from.isoformat(),
-                    "to": date_to.isoformat(),
+                    "since": self._iso_z(date_from),
+                    "to": self._iso_z(date_to),
                 },
                 "limit": limit,
                 "offset": offset,
@@ -52,67 +58,99 @@ class OzonApiClient:
                 },
             }
             data = self._post("/v3/posting/fbs/list", payload)
-            result = data.get("result", [])
-            orders.extend(result)
-            if len(result) < limit:
+            result = data.get("result") or {}
+            postings = result.get("postings") or []
+            orders.extend(postings)
+            if len(postings) < limit:
                 break
             offset += limit
         logger.info("Fetched %s Ozon postings", len(orders))
         return orders
-    @staticmethod
-    def _iso_z(dt: datetime) -> str:
-        return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-    
-def fetch_finance(self, date_from: datetime, date_to: datetime) -> List[Dict[str, Any]]:
-    """
-    Ozon v4/finance/transaction/list:
-    - обязательна нумерация страниц с 1
-    - page_size до 1000
-    - прекращаем, когда вернулась пустая страница или меньше page_size
-    """
-    records: List[Dict[str, Any]] = []
 
-    payload: Dict[str, Any] = {
-        "filter": {
-            "date": {
-                "from": self._iso_z(date_from),
-                "to": self._iso_z(date_to),
+    def fetch_orders_fbo(self, date_from: datetime, date_to: datetime) -> List[Dict[str, Any]]:
+        """Fetch FBO postings within the date range."""
+        postings: List[Dict[str, Any]] = []
+        offset = 0
+        limit = 100
+        while True:
+            payload = {
+                "filter": {
+                    "since": self._iso_z(date_from),
+                    "to": self._iso_z(date_to),
+                },
+                "limit": limit,
+                "offset": offset,
+                "dir": "ASC",
+                "with": {
+                    "analytics_data": True,
+                    "financial_data": True,
+                },
             }
-        },
-        "page": 1,
-        "page_size": 1000,
-        "language": "RU",
-    }
+            data = self._post("/v2/posting/fbo/list", payload)
+            result = data.get("result")
+            if isinstance(result, list):
+                postings_batch = result
+            else:
+                postings_batch = (result or {}).get("postings") or []
+            postings.extend(postings_batch)
+            if len(postings_batch) < limit:
+                break
+            offset += limit
+        logger.info("Fetched %s Ozon FBO postings", len(postings))
+        return postings
 
-    # объявляем переменные, чтобы IDE не ругалась
-    page = 1
-    page_size = 1000
-    max_pages = 2000  # предохранитель от бесконечного цикла
+    def fetch_orders(
+        self,
+        date_from: datetime,
+        date_to: datetime,
+        include_fbs: bool = True,
+        include_fbo: bool = True,
+    ) -> List[Dict[str, Any]]:
+        postings: List[Dict[str, Any]] = []
+        if include_fbs:
+            postings.extend(self.fetch_orders_fbs(date_from, date_to))
+        if include_fbo:
+            postings.extend(self.fetch_orders_fbo(date_from, date_to))
+        return postings
+    def fetch_finance(self, date_from: datetime, date_to: datetime) -> List[Dict[str, Any]]:
+        """
+        Ozon v4/finance/transaction/list:
+        - обязательна нумерация страниц с 1
+        - page_size до 1000
+        - прекращаем, когда вернулась пустая страница или меньше page_size
+        """
+        records: List[Dict[str, Any]] = []
 
-    while True:
-        payload["page"] = page
-        payload["page_size"] = page_size
-        data = self._post("/v4/finance/transaction/list", payload)
-        result = data.get("result", {})
-        ops = result.get("operations") or result.get("records") or []
-        if not ops:
-            break
+        payload: Dict[str, Any] = {
+            "filter": {
+                "date": {
+                    "from": self._iso_z(date_from),
+                    "to": self._iso_z(date_to),
+                }
+            },
+            "page": 1,
+            "page_size": 1000,
+            "language": "RU",
+        }
 
-        records.extend(ops)
+        max_pages = 2000
+        while True:
+            data = self._post("/v4/finance/transaction/list", payload)
+            result = data.get("result", {})
+            ops = result.get("operations") or result.get("records") or []
+            if not ops:
+                break
+            records.extend(ops)
+            if len(ops) < payload["page_size"]:
+                break
+            payload["page"] += 1
+            if payload["page"] > max_pages:
+                break
 
-        # если операций меньше размера страницы — дальше пусто
-        if len(ops) < page_size:
-            break
+        logger.info("Fetched %s Ozon finance records (pages=%s)", len(records), payload["page"] - 1)
+        return records
 
-        page += 1
-        if page > max_pages:
-            break
-
-    logger.info("Fetched %s Ozon finance records (pages=%s)", len(records), page - 1)
-    return records
-
-
-def fetch_ads_costs(self, date_from: datetime, date_to: datetime) -> List[Dict[str, Any]]:
+    def fetch_ads_costs(self, date_from: datetime, date_to: datetime) -> List[Dict[str, Any]]:
         """Fetch advertising spend per day."""
         payload = {
             "date_from": date_from.strftime("%Y-%m-%d"),
